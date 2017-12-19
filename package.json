@@ -1,0 +1,26 @@
+{
+  "name": "extract-license",
+  "version": "0.1.0",
+  "description": "Extract all licenses from a repo, and output a md.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/meathill/extract-license.git"
+  },
+  "keywords": [
+    "license",
+    "extractor"
+  ],
+  "author": "Meathill <meathill@openresty.com>",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/meathill/extract-license/issues"
+  },
+  "homepage": "https://github.com/meathill/extract-license#readme",
+  "dependencies": {
+    "lodash": "^4.17.4"
+  }
+}
