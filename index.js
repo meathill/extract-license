@@ -1,12 +1,15 @@
 const fs = require('fs');
 const path = require('path');
 const {promisify} = require('util');
-const {findKey, isArray, isPlainObject} = require('lodash');
+const Handlebars = require('handlebars');
+const mdpdf = require('mdpdf');
+const {isArray, isPlainObject} = require('lodash');
 
 const readdir = promisify(fs.readdir);
 const readFile = promisify(fs.readFile);
 const stat = promisify(fs.stat);
 const writeFile = promisify(fs.writeFile);
+const licenseTemplates = {};
 
 async function extract(folder) {
   const modules = `${folder}/node_modules`;
@@ -21,77 +24,144 @@ async function extract(folder) {
   });
 
   mods = await Promise.all(mods.map(async mod => {
-    let {license, LICENSE, licenses} = require(`${modules}/${mod}/package.json`);
-
-    license = license || LICENSE || licenses;
-    if (license) {
-      if (isPlainObject(license)) {
-        license = license.type;
-      }
-      if (isArray(license)) {
-        if (license.length === 1) {
-          license = license[0].type;
-        } else {
-          license = `(${license.map(item => item.type).join(' OR ')})`;
-        }
-      }
-
-      return `* ${mod}: ${license}`;
-    }
-
-    // read from readme
-    if (mod === 'options') {
-      console.log('a');
-    }
+    // read LICENSE file first
     let files = await readdir(`${modules}/${mod}`, 'utf8');
-    let readme = files.find(file => {
-      return /^readme/i.test(file);
-    });
-    if (readme) {
-      let content = await readFile(`${modules}/${mod}/${readme}`, 'utf8');
-      let matches = content.match(/#+ (?:licence|license) (\S*)/i);
-      if (matches && matches[1]) {
-        license = matches[1].replace(/^\(/, '');
-        license = license.replace(/\)$/, '');
-        license = license.replace(/#/g, '');
-        if (license) {
-          return `* ${mod}: ${license}`;
-        }
-      }
-
-      let index = content.search(/#+ (?:licence|license)/i);
-      if (index !== -1) {
-        matches = content.substr(index).match(/mit|apache|gpl/i);
-        if (matches) {
-          return `* ${mod}: ${matches[0]}`;
-        }
-      }
-    }
-
-    // standalone License file, no keyword, hard to retrieve
-    const known = {
-      MIT: ['extsprintf', 'verror'],
-      BSD: ['domelementtype', 'domhandler', 'domutils'],
-    };
-    license = findKey(known, repos => {
-      return repos.indexOf(mod) !== -1;
-    });
+    let license = files.find(file => /^(license|licence)\b/i.test(file));
     if (license) {
-      return `* ${mod}: ${license}`;
+      license = await readFile(`${modules}/${mod}/${license}`, 'utf8');
+      return {
+        mod,
+        license,
+      };
     }
 
-    return `* ${mod}: UNKNOWN`;
+    // no LICENSE file, find license and give it from template
+    license = await findLicense(modules, mod, files);
+    if (license) {
+      license = await getLicense(license);
+      return {
+        mod,
+        license,
+      };
+    }
+
+    return {
+      mod,
+      license: 'UNKNOWN',
+    };
   }))
     .catch(err => {
       console.warn(err);
     });
 
-  await writeFile(`${folder}/licences.md`, mods.join('\n'), 'utf8');
+  return {
+    folder,
+    mods
+  };
+}
+
+async function findLicense(modules, mod, files) {
+  let {license, LICENSE, licenses} = require(`${modules}/${mod}/package.json`);
+
+  license = license || LICENSE || licenses;
+  if (license) {
+    if (isPlainObject(license)) {
+      license = license.type;
+    } else if (isArray(license)) {
+      if (license.length === 1) {
+        license = license[0].type;
+      } else {
+        license = license.map(item => item.type);
+      }
+    }
+
+    return license;
+  }
+
+  // read from readme
+  let readme = files.find(file => {
+    return /^readme\b/i.test(file);
+  });
+  if (readme) {
+    let content = await readFile(`${modules}/${mod}/${readme}`, 'utf8');
+    let matches = content.match(/#+ (?:licence|license) (\S*)/i);
+    if (matches && matches[1]) {
+      license = matches[1].replace(/^\(/, '');
+      license = license.replace(/\)$/, '');
+      license = license.replace(/#/g, '');
+      if (license) {
+        return license;
+      }
+    }
+
+    let index = content.search(/#+ (?:licence|license)/i);
+    if (index !== -1) {
+      matches = content.substr(index).match(/mit|apache|gpl/i);
+      if (matches) {
+        return matches[0];
+      }
+    }
+  }
+}
+
+async function getLicense(license) {
+  if (!isArray(license)) {
+    if (!license.replace) {
+      console.log('a');
+    }
+    license = license.replace(/^\(/, '')
+      .replace(/\)$/, '')
+      .replace(/#/g, '')
+      .split(/\s*AND\s*/g);
+  }
+  return Promise.all(license.map(async item => {
+    let key = item.toLowerCase();
+    if (key === 'public domain') {
+      return item;
+    }
+    if (/\bx11\b/.test(key)) {
+      key = 'mit';
+    }
+    if (!licenseTemplates[key]) {
+      licenseTemplates[key] = await readFile(path.resolve(__dirname, `licenses/${key}`));
+    }
+    return licenseTemplates[key];
+  }));
+
+}
+
+async function output({folder, mods}) {
+  let template = await readFile(path.resolve(__dirname, 'template.hbs'), 'utf8');
+  template = Handlebars.compile(template);
+  let html = template({
+    mods
+  });
+  let to = `${folder}/licences.md`;
+  return Promise.all([folder, writeFile(to, html, 'utf8')]);
 }
 
 let target = process.argv[2];
 
 extract(path.resolve(process.cwd(), target))
+  .then(result => {
+    return output(result);
+  })
+  .then(([folder, ]) => {
+    return mdpdf.convert({
+      source: `${folder}/licences.md`,
+      destination: `${folder}/licences.pdf`,
+      styles: path.join(__dirname, 'node_modules/bootstrap/dist/css/bootstrap.min.css'),
+      pdf: {
+        format: 'A4',
+      },
+    });
+  })
+  .then(pdf => {
+    console.log(pdf);
+  })
   .then(() => {
     console.log('done');
+  })
+  .catch(err => {
+    console.log(err);
   });
