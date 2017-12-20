@@ -2,7 +2,6 @@ const fs = require('fs');
 const path = require('path');
 const {promisify} = require('util');
 const Handlebars = require('handlebars');
-const mdpdf = require('mdpdf');
 const {keys, isArray, isPlainObject} = require('lodash');
 
 const readdir = promisify(fs.readdir);
@@ -29,6 +28,8 @@ async function extract(folder) {
   mods = mods.filter((mod, index) => {
     return stats[index] && stats[index].isDirectory();
   });
+
+  console.log('Number of dependencies: ' + mods.length);
 
   mods = await Promise.all(mods.map(async mod => {
     // read LICENSE file first
