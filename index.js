@@ -11,8 +11,11 @@ const writeFile = promisify(fs.writeFile);
 const licenseTemplates = {};
 
 async function extract(folder) {
-  let {dependencies} = require(`${folder}/package.json`);
+  let {dependencies, devDependencies} = require(`${folder}/package.json`);
   dependencies = keys(dependencies);
+  if ('webpack' in devDependencies) {
+    dependencies.push('webpack');
+  }
   dependencies = dependencies.reduce((memo, dependency) => {
     let {dependencies} = require(`${folder}/node_modules/${dependency}/package.json`);
     return memo.concat(keys(dependencies));
