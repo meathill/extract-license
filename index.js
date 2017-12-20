@@ -16,7 +16,7 @@ async function extract(folder) {
   dependencies = dependencies.reduce((memo, dependency) => {
     let {dependencies} = require(`${folder}/node_modules/${dependency}/package.json`);
     return memo.concat(keys(dependencies));
-  }, []);
+  }, dependencies);
 
   const modules = `${folder}/node_modules`;
   let mods = await readdir(modules, 'utf8');
