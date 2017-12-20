@@ -3,7 +3,7 @@ const path = require('path');
 const {promisify} = require('util');
 const Handlebars = require('handlebars');
 const mdpdf = require('mdpdf');
-const {isArray, isPlainObject} = require('lodash');
+const {keys, isArray, isPlainObject} = require('lodash');
 
 const readdir = promisify(fs.readdir);
 const readFile = promisify(fs.readFile);
@@ -12,11 +12,18 @@ const writeFile = promisify(fs.writeFile);
 const licenseTemplates = {};
 
 async function extract(folder) {
+  let {dependencies} = require(`${folder}/package.json`);
+  dependencies = keys(dependencies);
+  dependencies = dependencies.reduce((memo, dependency) => {
+    let {dependencies} = require(`${folder}/node_modules/${dependency}/package.json`);
+    return memo.concat(keys(dependencies));
+  }, []);
+
   const modules = `${folder}/node_modules`;
   let mods = await readdir(modules, 'utf8');
 
   const stats = await Promise.all(mods.map(mod => {
-    return mod !== '.' && mod !== '..' && mod !== '.bin' ? stat(`${modules}/${mod}`) : null;
+    return dependencies.indexOf(mod) !== -1 ? stat(`${modules}/${mod}`) : null;
   }));
 
   mods = mods.filter((mod, index) => {
@@ -145,19 +152,6 @@ let target = process.argv[2];
 extract(path.resolve(process.cwd(), target))
   .then(result => {
     return output(result);
-  })
-  .then(([folder, ]) => {
-    return mdpdf.convert({
-      source: `${folder}/licences.md`,
-      destination: `${folder}/licences.pdf`,
-      styles: path.join(__dirname, 'node_modules/bootstrap/dist/css/bootstrap.min.css'),
-      pdf: {
-        format: 'A4',
-      },
-    });
-  })
-  .then(pdf => {
-    console.log(pdf);
   })
   .then(() => {
     console.log('done');
