@@ -21,7 +21,7 @@
   },
   "homepage": "https://github.com/meathill/extract-license#readme",
   "dependencies": {
-    "handlebars": "^4.7.6",
+    "handlebars": "^4.7.7",
     "lodash": "^4.17.19"
   }
 }
